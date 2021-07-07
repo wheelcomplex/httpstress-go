@@ -2,67 +2,85 @@
 CLI utility for stress testing of HTTP servers with many concurrent connections
 
 Usage:
- httpstress-go <URL list> [options]
+ httpstress [options] <URL list>
 
 Options:
- * `URL list` – URLs to fetch (required)
- * `-c NUM` – concurrent connections number (defaults to 1)
- * `-n NUM` – total connections number (optional)
- * `-v` – print version to stdout and exit
+ * -c <int>   concurrent connections number (defaults to 1)
+ * -n <int>   total connections number (defaults to URL count)
+ * --version  print version to stdout and exit
 
 Example:
- httpstress-go http://localhost https://google.com -c 1000
+ httpstress -c 1000 http://localhost https://192.168.1.1
 
-Returns 0 if no errors, 1 if some requests failed, 2 on kill, 3 in case of invalid options
-and 4 if it encounters a setrlimit(2)/getrlimit(2) error.
+Returns 0 if no errors, 1 if some requests failed, 2 on kill and 3 in case of invalid options.
 
 Prints elapsed time and error count for each URL to stdout (if any; does not count successful attempts).
 Usage and runtime errors go to stderr.
 
-Output is YAML-formatted. Example:
- Errors:
-   - Location: http://localhost
-     Count:    334
-   - Location: https://127.0.0.1
-     Count:    333
- Elapsed time: 4.791903888s
+Output is JSON-formatted. Example:
+  {
+    "errors": {
+      "http://localhost": 500,
+      "https://192.168.1.1": 3
+    },
+    "seconds": 12.8
+  }
 
-Please note that this utility uses GOMAXPROCS environment variable if it's present.
-If not, this defaults to CPU count + 1.
+It follows HTTP redirects. Non-200 HTTP return code is an error.
+
+Be sure to set `ulimit -n` on Unix systems high enough.
 */
 package main
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
-	"github.com/chillum/httpstress"
-	flag "github.com/ogier/pflag"
 	"os"
 	"runtime"
 	"time"
+
+	httpstress "github.com/chillum/httpstress/lib"
 )
 
-// Application version
-const Version = "3.1"
+// Version is the application version
+const Version = "6.5.3"
+
+type results struct {
+	Errors  interface{} `json:"errors"`
+	Seconds *float32    `json:"seconds"`
+}
+
+type ver struct {
+	App  string `json:"httpstress"`
+	Go   string `json:"runtime"`
+	Os   string `json:"os"`
+	Arch string `json:"arch"`
+}
 
 func main() {
 	var conn, max int
-	flag.IntVarP(&conn, "c", "c", 1, "concurrent connections count")
-	flag.IntVarP(&max, "n", "n", 0, "total connections (optional)")
-	version := flag.BoolP("version", "v", false, "print version to stdout and exit")
+	var final results
+	flag.IntVar(&conn, "c", 1, "concurrent connections")
+	flag.IntVar(&max, "n", 0, "total connections (defaults to URL count)")
+	version := flag.Bool("version", false, "print version to stdout and exit")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage:", os.Args[0], "<URL list> [options]")
-		fmt.Fprintln(os.Stderr, "  <URL list>: URLs to fetch (required)")
+		fmt.Fprintln(os.Stderr, "Usage: httpstress [options] <URL list>\nOptions:")
 		flag.PrintDefaults()
-		fmt.Fprintln(os.Stderr, "Docs:\n  https://github.com/chillum/httpstress-go/wiki")
-		fmt.Fprintln(os.Stderr, "Example:\n  httpstress-go http://localhost https://google.com -c 1000")
+		fmt.Fprintln(os.Stderr, "Example: httpstress -c 1000 http://localhost https://192.168.1.1")
+		fmt.Fprintln(os.Stderr, "Docs:    https://github.com/chillum/httpstress/wiki")
 		os.Exit(3)
 	}
 	flag.Parse()
 
 	if *version {
-		fmt.Println("httpstress-go", Version)
-		fmt.Println("httpstress", httpstress.Version)
-		fmt.Println(runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		var ver ver
+		ver.App = Version
+		ver.Go = runtime.Version()
+		ver.Os = runtime.GOOS
+		ver.Arch = runtime.GOARCH
+		json, _ := json.Marshal(&ver)
+		fmt.Println(string(json))
 		os.Exit(0)
 	}
 
@@ -71,30 +89,23 @@ func main() {
 		flag.Usage()
 	}
 
-	if os.Getenv("GOMAXPROCS") == "" {
-		runtime.GOMAXPROCS(runtime.NumCPU() + 1)
-	}
-
-	if !setlimits(&conn) { // Platform-specific code: see unix.go and windows.go for details.
-		os.Exit(4)
-	}
-
 	start := time.Now()
 
-	out, err := httpstress.Test(conn, max, urls)
+	errors, err := httpstress.Test(conn, max, urls)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		flag.Usage()
 	}
 
-	elapsed := time.Since(start)
+	elapsed := float32(int64(time.Since(start).Seconds()*10)) / 10
 
-	if len(out) > 0 {
-		fmt.Println("Errors:")
-		for url, num := range out {
-			fmt.Println("  - Location:", url, "\n    Count:   ", num)
-		}
+	if len(errors) > 0 {
 		defer os.Exit(1)
 	}
-	fmt.Println("Elapsed time:", elapsed)
+
+	final.Errors = &errors
+	final.Seconds = &elapsed
+
+	json, _ := json.MarshalIndent(&final, "", "  ")
+	fmt.Println(string(json))
 }

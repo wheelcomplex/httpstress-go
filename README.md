@@ -1,20 +1,20 @@
-## httpstress-go
+## httpstress
 
-CLI utility for stress testing of HTTP servers with many concurrent connections.  
-Automatically sets `ulimit -n` on Unix systems.
+CLI utility for stress testing of HTTP servers with many concurrent connections.
 
 Prints elapsed time and error count for each URL to stdout (if any).  
-Produces YAML-formatted output like:
+Produces JSON-formatted output like:
 
-```yaml
-Errors:
-  - Location: http://localhost
-    Count:    334
-  - Location: https://127.0.0.1
-    Count:    333
-Elapsed time: 4.791903888s
+```json
+{
+  "errors": {
+    "http://localhost": 500,
+    "https://192.168.1.1": 3
+  },
+  "seconds": 12.8
+}
 ```
 
-#### Install: [source code](https://github.com/chillum/httpstress-go/wiki/Building-from-source) or [binary release](https://github.com/chillum/httpstress-go/wiki/Installing-from-binaries)
+#### Install: [source code](https://github.com/chillum/httpstress/wiki/Installing-from-source) or [binary release](https://github.com/chillum/httpstress/wiki/Installing-from-binaries)
 
-#### Use: check out [the user manual](https://github.com/chillum/httpstress-go/wiki#httpstress-go)
+#### Use: check out [the user manual](https://github.com/chillum/httpstress/wiki)
